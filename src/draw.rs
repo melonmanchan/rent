@@ -1,4 +1,5 @@
 use crate::config::{self, NUMFONTSCALES};
+use std::collections::HashMap;
 use swash::scale::image::Content;
 use swash::scale::{Render, ScaleContext, Source, StrikeWith};
 use swash::{CacheKey, FontRef, GlyphId};
@@ -46,7 +47,11 @@ impl Font {
 }
 
 pub struct Renderer {
+    db: fontdb::Database,
     fonts: Vec<Font>,
+    /* face ids already in `fonts`, parallel to it */
+    loaded: Vec<fontdb::ID>,
+    char_cache: HashMap<char, usize>,
     sizes: [f32; NUMFONTSCALES],
     scale_ctx: ScaleContext,
 }
@@ -98,12 +103,14 @@ impl Renderer {
         }
 
         let mut fonts = Vec::new();
+        let mut loaded = Vec::new();
         for id in ids {
-            let loaded = db
+            let font = db
                 .with_face_data(id, |data, index| Font::load(data.to_vec(), index))
                 .flatten();
-            if let Some(font) = loaded {
+            if let Some(font) = font {
                 fonts.push(font);
+                loaded.push(id);
             }
         }
         if fonts.is_empty() {
@@ -114,15 +121,78 @@ impl Renderer {
         for (i, s) in sizes.iter_mut().enumerate() {
             *s = config::fontsz(i);
         }
-        Ok(Renderer { fonts, sizes, scale_ctx: ScaleContext::new() })
+        Ok(Renderer {
+            db,
+            fonts,
+            loaded,
+            char_cache: HashMap::new(),
+            sizes,
+            scale_ctx: ScaleContext::new(),
+        })
     }
 
-    /* index of the first font covering ch, 0 if none */
-    fn font_idx(&self, ch: char) -> usize {
-        self.fonts
+    /* Index of the first configured font covering ch; on a miss, hunt the
+     * whole system database for any covering face, like sent does per
+     * codepoint through XftFontMatch. 0 (.notdef) if nothing covers it. */
+    fn font_idx(&mut self, ch: char) -> usize {
+        if let Some(&i) = self.char_cache.get(&ch) {
+            return i;
+        }
+        let idx = self
+            .fonts
             .iter()
             .position(|f| f.glyph(ch) != 0)
-            .unwrap_or(0)
+            .or_else(|| self.search_db(ch))
+            .unwrap_or(0);
+        self.char_cache.insert(ch, idx);
+        idx
+    }
+
+    fn search_db(&mut self, ch: char) -> Option<usize> {
+        /* prefer regular text faces: non-emoji, upright, near-400 weight,
+         * proportional */
+        let mut cands: Vec<((bool, bool, u16, bool), fontdb::ID)> = self
+            .db
+            .faces()
+            .filter(|f| !self.loaded.contains(&f.id))
+            .map(|f| {
+                let emoji = f
+                    .families
+                    .iter()
+                    .any(|(n, _)| n.to_ascii_lowercase().contains("emoji"));
+                let rank = (
+                    emoji,
+                    f.style != fontdb::Style::Normal,
+                    f.weight.0.abs_diff(400),
+                    f.monospaced,
+                );
+                (rank, f.id)
+            })
+            .collect();
+        cands.sort_unstable();
+
+        for (_, id) in cands {
+            let covers = self
+                .db
+                .with_face_data(id, |data, index| {
+                    FontRef::from_index(data, index as usize)
+                        .is_some_and(|fr| fr.charmap().map(ch) != 0)
+                })
+                .unwrap_or(false);
+            if !covers {
+                continue;
+            }
+            let font = self
+                .db
+                .with_face_data(id, |data, index| Font::load(data.to_vec(), index))
+                .flatten();
+            if let Some(font) = font {
+                self.fonts.push(font);
+                self.loaded.push(id);
+                return Some(self.fonts.len() - 1);
+            }
+        }
+        None
     }
 
     /* Xft-style font height: ascent + descent of the primary face. */
@@ -136,11 +206,12 @@ impl Renderer {
         f.ascent * size / f.units_per_em
     }
 
-    pub fn text_width(&self, text: &str, size: f32) -> f32 {
+    pub fn text_width(&mut self, text: &str, size: f32) -> f32 {
         text.chars()
             .filter(|&ch| !ignorable(ch))
             .map(|ch| {
-                let f = &self.fonts[self.font_idx(ch)];
+                let i = self.font_idx(ch);
+                let f = &self.fonts[i];
                 f.advance(f.glyph(ch), size)
             })
             .sum()
@@ -149,7 +220,7 @@ impl Renderer {
     /* Mirror of sent's getfontsize(): pick the largest scale whose line
      * block fits the usable height, then shrink until the widest line
      * fits the usable width. */
-    pub fn fit(&self, lines: &[String], uw: f32, uh: f32) -> Fit {
+    pub fn fit(&mut self, lines: &[String], uw: f32, uh: f32) -> Fit {
         let lfac = config::LINESPACING * lines.len().saturating_sub(1) as f32 + 1.0;
         let mut j = (0..NUMFONTSCALES)
             .rev()
@@ -164,7 +235,7 @@ impl Renderer {
         let width = lines
             .iter()
             .map(|l| self.text_width(l, size))
-            .fold(0.0, f32::max);
+            .fold(0.0f32, f32::max);
         let font_h = self.line_h(size);
         Fit { size, font_h, ascent: self.ascent(size), width, height: font_h * lfac }
     }
@@ -196,7 +267,8 @@ impl Renderer {
             if ignorable(ch) {
                 continue;
             }
-            let font = &self.fonts[self.font_idx(ch)];
+            let fi = self.font_idx(ch);
+            let font = &self.fonts[fi];
             let glyph = font.glyph(ch);
             let mut scaler = self
                 .scale_ctx
@@ -331,7 +403,7 @@ mod tests {
 
     #[test]
     fn fit_shrinks_longer_lines() {
-        let r = renderer();
+        let mut r = renderer();
         let (uw, uh) = (FW as f32 * 0.75, FH as f32 * 0.75);
         let short = r.fit(&["hi".to_string()], uw, uh);
         let long = r.fit(
@@ -380,7 +452,7 @@ mod tests {
 
     #[test]
     fn ignorables_have_zero_width() {
-        let r = renderer();
+        let mut r = renderer();
         assert!(ignorable('\u{200D}'), "ZWJ must be ignorable");
         assert!(ignorable('\u{FE0F}'), "VS16 must be ignorable");
         assert_eq!(r.text_width("\u{200D}", 100.0), 0.0);
@@ -398,7 +470,7 @@ mod tests {
 
     #[test]
     fn two_line_block_height_uses_linespacing() {
-        let r = renderer();
+        let mut r = renderer();
         let fit = r.fit(
             &["one".to_string(), "two".to_string()],
             FW as f32 * 0.75,
@@ -409,6 +481,39 @@ mod tests {
             (fit.height - expected).abs() < 0.01,
             "height {} != font_h * 2.4 = {expected}",
             fit.height
+        );
+    }
+
+    #[test]
+    fn dynamic_fallback_finds_system_font_for_symbols() {
+        let mut r = renderer();
+        /* U+25B8 BLACK RIGHT-POINTING SMALL TRIANGLE: absent from common
+         * text faces (e.g. Helvetica Neue) but covered by system fonts
+         * like Menlo/Apple Symbols, so it exercises the fontdb search */
+        let ch = '\u{25B8}';
+        let pre = covers(&r, ch);
+
+        let idx = r.font_idx(ch);
+        if !pre && idx == 0 && r.fonts[0].glyph(ch) == 0 {
+            eprintln!("no system font covers U+25B8; skipping fallback check");
+            return;
+        }
+        assert_ne!(
+            r.fonts[idx].glyph(ch),
+            0,
+            "font_idx picked font {idx}, which does not cover U+25B8"
+        );
+
+        /* char -> index cache must hand back the same face on repeat */
+        assert_eq!(
+            r.font_idx(ch),
+            idx,
+            "second lookup returned a different font index"
+        );
+
+        assert!(
+            r.text_width("\u{25B8}", 100.0) > 0.0,
+            "covered symbol should have a positive advance"
         );
     }
 }
