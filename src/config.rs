@@ -5,13 +5,20 @@ use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
 /* Font families tried in order; every family found on the system is loaded.
- * Per-character fallback walks this list. A generic sans-serif face is
- * always appended as a last resort. */
+ * Per-character fallback walks this list, then a generic sans-serif face,
+ * then EMOJI_FONTS. */
 pub const FONT_FALLBACKS: &[&str] = &[
     "Helvetica Neue",
     "DejaVu Sans",
     "Roboto",
     "Ubuntu",
+];
+
+/* Color emoji faces, tried last so text symbols keep the text font. */
+pub const EMOJI_FONTS: &[&str] = &[
+    "Apple Color Emoji",
+    "Noto Color Emoji",
+    "Segoe UI Emoji",
 ];
 
 pub const NUMFONTSCALES: usize = 42;

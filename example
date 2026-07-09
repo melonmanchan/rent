@@ -50,8 +50,9 @@ $ rent FILE
 
 Images are handled in the
 http://tools.suckless.org/farbfeld/
-format natively, plus
-png / jpeg / gif / webp.
+format natively, plus png, jpeg,
+gif, webp, tiff, tga, qoi, ico,
+pnm, hdr and exr.
 
 rent also supports transparent images.
 Try changing the background in config.rs
