@@ -1,0 +1,68 @@
+rent
+
+Origin:
+     Takahashi
+
+Why?
+• PPTX sucks
+• LATEX sucks
+• PDF sucks
+
+also:
+terminal presentations
+don't support images…
+
+@example.ff
+this text will not be displayed, since the @ at the start of the first line
+makes this paragraph an image slide.
+
+easy to use
+
+depends on
+♽ winit
+☢ softbuffer
+☃ fontdue
+
+usage:
+$ rent FILE
+
+▸ one slide per paragraph
+▸ lines starting with # are ignored
+▸ image slide: paragraph containing @FILENAME
+▸ empty slide: just use a \ as a paragraph
+
+# This is a comment and will not be part of the presentation
+
+# multiple empty lines between paragraphs are also ignored
+
+
+# The following lines should produce
+# one empty slide
+
+
+
+\
+\
+
+\@this_line_actually_started_with_a_\.png
+\#This line as well
+⇒ Prepend a backslash to kill behaviour of special characters
+
+Images are handled in the
+http://tools.suckless.org/farbfeld/
+format natively, plus
+png / jpeg / gif / webp.
+
+rent also supports transparent images.
+Try changing the background in config.rs
+and rebuild.
+
+@example.ff
+
+😀😁😂😃😄😅😆😇😈😉😊😋😌😍😎😏
+😐😑😒😓😔😕😖😗😘😙😚😛😜😝😞😟
+😠😡😢😣😥😦😧😨😩😪😫😭😮😯😰😱
+😲😳😴😵😶😷😸😹😺😻😼😽😾😿🙀☠
+
+thanks.
+questions?
