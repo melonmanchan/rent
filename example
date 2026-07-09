@@ -60,6 +60,11 @@ and rebuild.
 
 @example.ff
 
+other formats work the same:
+
+@example.webp
+# the paragraph above is a lossy VP8 webp, decoded in pure Rust
+
 😀😁😂😃😄😅😆😇😈😉😊😋😌😍😎😏
 😐😑😒😓😔😕😖😗😘😙😚😛😜😝😞😟
 😠😡😢😣😥😦😧😨😩😪😫😭😮😯😰😱
