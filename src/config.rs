@@ -38,6 +38,10 @@ pub const LINESPACING: f32 = 1.4;
 pub const USABLEWIDTH: f32 = 0.75;
 pub const USABLEHEIGHT: f32 = 0.75;
 
+/* raster resolution of pdf export pages (-o); page aspect follows it */
+pub const EXPORTWIDTH: u32 = 1920;
+pub const EXPORTHEIGHT: u32 = 1080;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Advance(i32),

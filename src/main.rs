@@ -1,6 +1,7 @@
 mod config;
 mod draw;
 mod img;
+mod pdf;
 mod slide;
 
 use std::fs::File;
@@ -25,7 +26,7 @@ fn die(msg: impl std::fmt::Display) -> ! {
 }
 
 fn usage() -> ! {
-    die("usage: rent [-v] [file]")
+    die("usage: rent [-v] [-o output.pdf] [file]")
 }
 
 fn load_slides(fname: Option<&str>) -> Vec<Slide> {
@@ -194,12 +195,15 @@ impl ApplicationHandler for App {
 
 fn main() {
     let mut fname: Option<String> = None;
-    for a in std::env::args().skip(1) {
+    let mut output: Option<String> = None;
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
         match a.as_str() {
             "-v" => {
                 eprintln!("rent-{}", env!("CARGO_PKG_VERSION"));
                 return;
             }
+            "-o" => output = Some(args.next().unwrap_or_else(|| usage())),
             "-" => break,
             s if s.starts_with('-') => usage(),
             s => {
@@ -210,8 +214,14 @@ fn main() {
     }
 
     let slides = load_slides(fname.as_deref());
-    let images = load_images(&slides);
-    let renderer = Renderer::new().unwrap_or_else(|e| die(e));
+    let mut images = load_images(&slides);
+    let mut renderer = Renderer::new().unwrap_or_else(|e| die(e));
+
+    if let Some(out) = output {
+        /* headless: rasterize all slides into a pdf and exit */
+        pdf::export(&out, &mut renderer, &slides, &mut images).unwrap_or_else(|e| die(e));
+        return;
+    }
 
     let event_loop = EventLoop::new()
         .unwrap_or_else(|e| die(format!("rent: unable to create event loop: {e}")));
